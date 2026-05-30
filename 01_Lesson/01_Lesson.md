@@ -865,39 +865,82 @@ Expected WSL output:
 Rust X11 lab received your connection, but setup is not implemented yet.
 Error: Can't open display: 172.18.224.1:0.0
 ```
-
-That error is expected. `xclock` reached our server, but our server deliberately
-rejected the setup request instead of creating a real display connection.
-
-This intentional failure is a success for the lesson. It proves that:
-
+  
+That error is expected. `xclock` reached our server, but our server deliberately rejected the setup request instead of creating a real display connection.  
+  
+This intentional failure is a success for the lesson. It proves that:  
+  
 - `xclock` found our Rust server.
 - The Rust server accepted the TCP connection.
 - The Rust server read the X11 setup request.
 - The Rust server sent bytes back to the X11 client.
-
-When this checkpoint works, return to the PowerShell terminal running the Rust
-application and press `Ctrl+C` to stop it before continuing to Step 8.
-
+  
+When this checkpoint works, return to the PowerShell terminal running the Rust application and press `Ctrl+C` to stop it before continuing to Step 8.  
+  
 ## Step 8: Run the Full Check
+  
+Step 8 is the final checkpoint for Lesson 01. There is no new Rust code to add in this step. Instead, we run the complete Lesson 01 server from Step 7 and verify the full path from `xclock` to the Rust process and back to `xclock`.  
+  
+The full check confirms the complete flow:  
+  
+```text
+xclock starts in WSL
+    |
+    v
+DISPLAY points to <windows-host-ip>:0.0
+    |
+    v
+xclock connects to TCP 6000
+    |
+    v
+Rust reads the X11 setup request
+    |
+    v
+Rust sends an intentional setup failure
+    |
+    v
+xclock prints the failure reason and exits
+```
+  
+Before running the check, make sure `main.rs` still contains the Step 7 version of the server. The important final block is the response-writing code:  
+  
+```rust
+let reason = b"Rust X11 lab received your connection, but setup is not implemented yet.\n";
+let reason_len = reason.len();
+let padded_reason_len = pad4(reason_len);
+let additional_length = (padded_reason_len / 4) as u16;
 
-Start the Rust server from PowerShell:
+let mut response = Vec::new();
+response.push(0); // Failed
+response.push(reason_len as u8);
+response.extend_from_slice(&11u16.to_le_bytes());
+response.extend_from_slice(&0u16.to_le_bytes());
+response.extend_from_slice(&additional_length.to_le_bytes());
+response.extend_from_slice(reason);
+response.resize(8 + padded_reason_len, 0);
 
+stream.write_all(&response)?;
+println!("sent intentional X11 setup failure");
+```
+  
+That code is what turns the server from a passive reader into an X11 peer that can answer the setup request. The answer is still a failure, but it is an intentional protocol response rather than a dropped connection.  
+  
+Start the Rust server from PowerShell:  
+  
 ```powershell
-cd 01_Lesson
 cargo run
 ```
 
-In Ubuntu, set `DISPLAY` and run `xclock`:
+Leave that PowerShell window running. In Ubuntu, set `DISPLAY` and run `xclock`:
 
 ```bash
 WINDOWS_HOST=$(ip route | awk '/default/ {print $3; exit}')
 export DISPLAY=$WINDOWS_HOST:0.0
 xclock
 ```
-
-Expected Rust output:
-
+  
+Expected Rust output should look similar to:  
+  
 ```text
 Listening on 0.0.0.0:6000
 Waiting for an X11 setup request...
@@ -916,24 +959,27 @@ padded auth bytes read: 36
 received X11 setup request
 sent intentional X11 setup failure
 ```
-
-The authentication lengths may differ depending on your environment. That is
-fine. The important checkpoints are:
-
-- The server prints `Client connected from ...`.
-- The server prints `protocol version: 11.0`.
-- The server prints `received X11 setup request`.
-- The server prints `sent intentional X11 setup failure`.
-
-Expected Ubuntu result:
-
+  
+The authentication lengths may differ depending on your environment. That is fine. The important checkpoints are:  
+  
+- The server prints `Client connected from ...`.  
+- The server prints `protocol version: 11.0`.  
+- The server prints `received X11 setup request`.  
+- The server prints `sent intentional X11 setup failure`.  
+  
+Expected WSL output:  
+  
 ```text
-Error: Can't open display: <windows-host-ip>:0.0
+Rust X11 lab received your connection, but setup is not implemented yet.  
+Error: Can't open display: 172.18.224.1:0.0  
 ```
-
-That error is expected in Lesson 01. We have not implemented a successful X11
-setup response yet.
-
+  
+The exact IP address may differ. The important detail is that `xclock` prints the failure reason from our Rust server before reporting that it cannot open the display.
+  
+That error is expected in Lesson 01. We have not implemented a successful X11 setup response yet. For now, the completed result is that our Rust server can accept the  client, read the setup request, and send a deliberate X11 setup failure response.
+  
+After the full check works, return to the PowerShell terminal running the Rust application and press `Ctrl+C` to stop it.  
+  
 ## Troubleshooting
 
 If `cargo run` fails with `address already in use`, another X11 server or process
