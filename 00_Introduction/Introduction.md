@@ -2,17 +2,64 @@
 
 Welcome to the X11 Lab.
 
+## What Is X11?
+
+X11, also called the X Window System, is a windowing protocol used by many Unix
+and Linux desktop environments. It defines how graphical programs create
+windows, draw content, receive keyboard and mouse input, and communicate with the
+display system.
+
+One detail can be confusing at first: in X11, the graphical application is the
+client, and the display system is the server. That means a program like `xclock`
+or a terminal emulator is an X11 client. The X11 server is the program that owns
+the screen, keyboard, and mouse, and it decides what appears on the display.
+
+This design lets an X11 client run on one machine while the X11 server runs on
+another. For example, a Linux program can run inside WSL, in an SSH session, or
+on a remote server, then connect back to an X11 server running on your desktop.
+The client sends drawing requests over the connection, and the server sends
+events such as key presses, mouse movement, window exposure, and close requests
+back to the client.
+
+## How X11 Works
+
+An X11 connection starts with the client finding the display address, usually
+from the `DISPLAY` environment variable. A display such as `:0` typically maps
+to the local X11 server, while a value such as `<host>:0.0` tells the client to
+connect to a server on another machine. When X11 uses TCP, display `:0` listens
+on port `6000`, display `:1` listens on port `6001`, and so on.
+
+After connecting, the client sends a setup request. This request tells the server
+the client's byte order, the X11 protocol version it wants to use, and any
+authentication information. The server replies with either a failure, an
+authentication challenge, or a successful setup response describing the display.
+
+Once setup succeeds, the connection becomes a stream of protocol messages:
+
+1. The client sends requests such as create a window, draw a line, load a font,
+   or ask for a property.
+2. The server sends replies for requests that need answers.
+3. The server sends errors when a request is invalid.
+4. The server sends events when something happens, such as input arriving or a
+   window needing to be redrawn.
+
+X11 is built around server-side resources. Windows, cursors, pixmaps, graphics
+contexts, fonts, and atoms are all resources identified by numeric IDs. A client
+asks the server to create and operate on those resources, and the server tracks
+their state.
+
+This lab is about building the server side of that conversation. We will start
+with the first bytes of the setup request and gradually teach our Rust program
+how to understand and answer more of the protocol.
+
 In this lab, we will use Rust to build a small X11 server step by step. The goal
 is not to replace a production X server like Xorg, Xwayland, or XQuartz. The goal
 is to understand how an X11 client talks to a display server by implementing the
 important pieces ourselves.
 
 X11 is a useful protocol to study because it is old, practical, network-aware,
-and still visible in real systems. When a program such as `xclock`, `xeyes`, or
-another graphical Linux application starts, it does not draw directly to your
-screen. It connects to an X11 server, performs a setup handshake, creates
-resources, opens windows, sends drawing requests, and receives events. By writing
-the server side, we can make those ideas concrete.
+and still visible in real systems. By writing the server side, we can make those
+ideas concrete.
 
 ## What We Are Building
 
