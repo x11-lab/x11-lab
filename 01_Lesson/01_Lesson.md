@@ -12,7 +12,22 @@ expected. The goal for Lesson 01 is smaller and more important: prove that a rea
 X11 client can reach our Rust program, send the X11 setup request, and receive an
 intentional failure response.
 
-## What Is xclock?
+## What We Are Building
+
+The Rust application for this lesson will:
+
+1. Bind to `0.0.0.0:6000`.
+2. Wait for an X11 client to connect.
+3. Read the 12-byte X11 setup request header.
+4. Parse the fields we care about.
+5. Read and discard any authentication bytes.
+6. Send an intentional setup failure response.
+7. Print enough information to confirm each step worked.
+
+This is the smallest useful X11 server we can build. It does not create windows,
+draw pixels, handle events, or manage resources yet. Those come later.
+
+## Why xclock?
 
 `xclock` is a simple graphical clock program that uses X11. It is useful in this
 lab because it is small, common, and easy to run from Ubuntu. It does not need a
@@ -68,21 +83,6 @@ The first bytes sent by the client are the X11 setup request. They include:
 Our Rust server will read those fields and print them. That is enough to prove
 that we are receiving real X11 protocol traffic.
 
-## What We Will Build
-
-The Rust application for this lesson will:
-
-1. Bind to `0.0.0.0:6000`.
-2. Wait for an X11 client to connect.
-3. Read the 12-byte X11 setup request header.
-4. Parse the fields we care about.
-5. Read and discard any authentication bytes.
-6. Send an intentional setup failure response.
-7. Print enough information to confirm each step worked.
-
-This is the smallest useful X11 server we can build. It does not create windows,
-draw pixels, handle events, or manage resources yet. Those come later.
-
 ## Prerequisites
 
 You will need:
@@ -98,7 +98,7 @@ Ubuntu. That lets us test the network behavior directly.
 
 ## Check and Start WSL Ubuntu
   
-Open a powershell terminal.  
+Open a PowerShell terminal.
 
 Check your WSL distributions. If you are not using the Ubuntu image your commands may differ:
 > This tutorial assumes WSL is already installed and configured; it does not cover the setup process.
@@ -315,7 +315,7 @@ Expected result from the WSL terminal:
 ```text
 Connection to 172.18.224.1 6000 port [tcp/x11] succeeded!
 ```
-Expected result from the windows powershell terminal:  
+Expected result from the Windows PowerShell terminal:
 ```text
 # Example Output
 Client connected from 172.18.227.201:60842
@@ -668,22 +668,20 @@ xclock
 Expected output:
 ```
 Listening on 0.0.0.0:6000
-Waiting for an X11 client setup header...
+Waiting for an X11 setup request...
 Client connected from 172.18.227.201:60842
-Reading 12-byte header...
-Header read complete
+Received 12-byte X11 setup header:
 [6C, 00, 0B, 00, 00, 00, 12, 00, 10, 00, 00, 00]
 byte order: l
 protocol version: 11.0
 auth name length: 18
 auth data length: 16
-padded auth name length: 0
-padded auth data length: 0
-about to read padded auth bytes: 0
-padded auth bytes read: 0
+padded auth bytes read: 36
 received X11 setup request
 ```
-At this point we have successfully decoded the fixed-length X11 setup header. The next step is to read the variable-length authorization information that immediately follows it.  
+At this point we have read the fixed-length setup header and the padded
+authorization data that follows it. The next step is to send a response to the
+waiting client.
 
 When this checkpoint works, return to the PowerShell terminal running the Rust
 application and press `Ctrl+C` to stop it before continuing to Step 7.
@@ -877,32 +875,9 @@ This intentional failure is a success for the lesson. It proves that:
   
 When this checkpoint works, return to the PowerShell terminal running the Rust application and press `Ctrl+C` to stop it before continuing to Step 8.  
   
-## Step 8: Run the Full Check
-  
-Step 8 is the final checkpoint for Lesson 01. There is no new Rust code to add in this step. Instead, we run the complete Lesson 01 server from Step 7 and verify the full path from `xclock` to the Rust process and back to `xclock`.  
-  
-The full check confirms the complete flow:  
-  
-```text
-xclock starts in WSL
-    |
-    v
-DISPLAY points to <windows-host-ip>:0.0
-    |
-    v
-xclock connects to TCP 6000
-    |
-    v
-Rust reads the X11 setup request
-    |
-    v
-Rust sends an intentional setup failure
-    |
-    v
-xclock prints the failure reason and exits
-```
-  
-Before running the check, make sure `main.rs` contains the complete Step 7 server. The full file should look like this:
+## Step 8: Full `main.rs`
+
+The complete Lesson 01 server is:
 
 This final version combines everything added throughout Lesson 01:
 
@@ -998,6 +973,31 @@ fn main() -> std::io::Result<()> {
 ```
   
 This file is the completed Lesson 01 server. It listens for an X11 client, reads the setup request, consumes the padded authorization data, and sends an intentional X11 setup failure response instead of dropping the connection.  
+
+## Step 9: Run the Full Check
+
+Step 9 is the final checkpoint for Lesson 01. There is no new Rust code to add in this step. Instead, we run the complete Lesson 01 server from Step 8 and verify the full path from `xclock` to the Rust process and back to `xclock`.
+
+The full check confirms the complete flow:
+
+```text
+xclock starts in WSL
+    |
+    v
+DISPLAY points to <windows-host-ip>:0.0
+    |
+    v
+xclock connects to TCP 6000
+    |
+    v
+Rust reads the X11 setup request
+    |
+    v
+Rust sends an intentional setup failure
+    |
+    v
+xclock prints the failure reason and exits
+```
   
 Start the Rust server from PowerShell:  
   
@@ -1069,4 +1069,8 @@ If the Rust server prints a connection but then exits with an error, read the la
 We now have the first piece of an X11 server: a Rust process that accepts a real X11 client connection and reads the setup request.  
   
 In the next lesson, we will replace the intentional failure with a successful X11 setup response. That is the point where clients can begin sending normal X11 requests such as creating windows, asking for atoms, and querying server properties.  
+
+Reference: X.Org X11 protocol documentation, "Connection Setup" and "Protocol
+Encoding" sections:
+https://x.org/releases/X11R7.7/doc/xproto/x11protocol.html
   

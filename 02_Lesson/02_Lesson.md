@@ -692,9 +692,7 @@ fn log_x11_requests(stream: &mut TcpStream, byte_order: ByteOrder) -> io::Result
 
         let total_bytes = length_units as usize * 4;
         if total_bytes < 4 {
-            println!(
-                "request #{sequence}: opcode {opcode} has invalid length {length_units}"
-            );
+            println!("request #{sequence}: opcode {opcode} has invalid length {length_units}");
             return Ok(());
         }
 
@@ -773,8 +771,8 @@ fn pad_to_4(out: &mut Vec<u8>) {
   
 ## Step 10: Run the Full Check  
   
-Start the Lesson 02 server from Pow erShell:  
-  
+Start the Lesson 02 server from PowerShell:
+
 ```powershell
 cd 02_Lesson
 cargo run
@@ -838,4 +836,3 @@ The next step is to implement the first normal X11 request handlers. That is whe
 Reference: X.Org X11 protocol documentation, "Connection Setup" and "Protocol  
 Encoding" sections:  
 https://x.org/releases/X11R7.7/doc/xproto/x11protocol.html  
-  

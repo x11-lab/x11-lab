@@ -90,6 +90,12 @@ xclock
 The server should print a successful setup response and then begin logging
 request headers. When that works, stop the server with `Ctrl+C`.
 
+When this checkpoint works, continue to Step 2.
+
+Steps 2 through 6 show the important changes as focused excerpts. They are
+cumulative, but they are not complete replacements for `main.rs` by themselves.
+Step 7 contains the complete buildable file.
+
 ## Step 2: Decode Requests Into a Struct
 
 Lesson 02 logged request headers directly inside a loop. Lesson 03 gives each
@@ -173,6 +179,9 @@ fn read_x11_request(
 The sequence number starts at `1` for the first normal request after setup. The
 server must echo the matching sequence number in replies and errors.
 
+Add this request type and read function to `main.rs`. When this piece is in
+place, continue to Step 3.
+
 ## Step 3: Add Reply and Error Helpers
 
 X11 replies begin with an 8-byte reply header:
@@ -230,6 +239,9 @@ This lesson uses:
 
 Sending an error is better than silently closing the connection. It lets the
 client observe a protocol-shaped failure.
+
+Add these reply and error helpers to `main.rs`. When this piece is in place,
+continue to Step 4.
 
 ## Step 4: Answer Extension Discovery
 
@@ -292,6 +304,9 @@ fn handle_list_extensions(
 
 This is intentionally minimal. A future lesson can add real extension support,
 but a small server is allowed to support none.
+
+Add these extension handlers to `main.rs`. When this piece is in place,
+continue to Step 5.
 
 ## Step 5: Add an Atom Table
 
@@ -364,6 +379,9 @@ atom and remembers it.
 `GetAtomName` goes the other direction. It returns the name for a known atom and
 sends an `Atom` error for an unknown atom.
 
+Add the atom table and atom handlers to `main.rs`. When this piece is in place,
+continue to Step 6.
+
 ## Step 6: Add GetInputFocus and the Dispatcher
 
 `GetInputFocus` is a simple fixed-size reply. Lesson 03 returns `PointerRoot`,
@@ -406,6 +424,9 @@ match request.opcode {
 Unsupported requests are still useful. When `xclock` asks for something Lesson
 03 does not implement, the server sends a protocol error instead of hanging in
 silence.
+
+Add `GetInputFocus` and the dispatcher to `main.rs`. When this piece is in
+place, compare your file with the complete version in Step 7.
 
 ## Step 7: Full `main.rs`
 
@@ -1157,7 +1178,7 @@ fn pad_to_4(out: &mut Vec<u8>) {
 }
 ```
 
-## Step 8: Full Check
+## Step 8: Run the Full Check
 
 Run the server:
 
