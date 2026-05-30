@@ -689,31 +689,195 @@ When this checkpoint works, return to the PowerShell terminal running the Rust
 application and press `Ctrl+C` to stop it before continuing to Step 7.
 
 ## Step 7: Send an Intentional Failure
-
-For Lesson 01, the server rejects the setup request on purpose:
-
+  
+In Step 6, the Rust server successfully read the complete X11 setup request. The client is now waiting for the server to answer.  
+  
+For Lesson 01, we are not ready to accept the connection yet. Instead, the server will send a valid X11 setup failure response on purpose. This is still progress: it proves that the Rust application can receive a real X11 setup request and write a protocol-shaped response back to the client.  
+  
+An X11 setup failure response contains:  
+  
+| Field               | Meaning                                            |
+| ------------------- | -------------------------------------------------- |
+| `success`           | `0`, meaning `Failed`                              |
+| `reason length`     | Length of the human-readable failure message       |
+| `major version`     | X11 major protocol version supported by the server |
+| `minor version`     | X11 minor protocol version supported by the server |
+| `additional length` | Padded reason length in 4-byte units               |
+| `reason`            | The failure message bytes                          |
+  
+The reason text is padded to a 4-byte boundary, just like the authentication strings we read in Step 6.    
+  
+The change from Step 6 is that we now write a response after reading the setup request. First, add `Write` to the import list so Rust can call `write_all` on the TCP stream:  
+  
 ```rust
-use std::io::Write;
+use std::io::{Read, Write};
+```
+  
+Then add this block immediately after:  
+  
+```rust
+println!("received X11 setup request");
+```
+  
+This code builds the setup failure response byte by byte and sends it back to the client:  
+  
+```rust
+let reason = b"Rust X11 lab received your connection, but setup is not implemented yet.\n";
+let reason_len = reason.len();
+let padded_reason_len = pad4(reason_len);
+let additional_length = (padded_reason_len / 4) as u16;
 
-let reason = b"Rust X11 lab received your connection, but full setup is not implemented yet.";
 let mut response = Vec::new();
-response.push(0); // failure
-response.push(reason.len() as u8);
+response.push(0); // Failed
+response.push(reason_len as u8);
 response.extend_from_slice(&11u16.to_le_bytes());
 response.extend_from_slice(&0u16.to_le_bytes());
-response.extend_from_slice(&0u16.to_le_bytes());
+response.extend_from_slice(&additional_length.to_le_bytes());
 response.extend_from_slice(reason);
+response.resize(8 + padded_reason_len, 0);
 
 stream.write_all(&response)?;
 println!("sent intentional X11 setup failure");
 ```
 
-This failure is a success for the lesson. It proves that:
+The first byte, `0`, tells the client the setup failed. The next byte gives the length of the failure reason. The protocol version is still `11.0`. The `additional_length` field tells the client how many padded 4-byte units follow the fixed response header. Finally, `write_all` sends the complete response to `xclock`.  
+  
+Replace `main.rs` with this:  
+  
+```rust
+use std::io::{Read, Write};
+use std::net::TcpListener;
+
+fn pad4(value: usize) -> usize {
+    (value + 3) & !3
+}
+
+fn main() -> std::io::Result<()> {
+    let listener = TcpListener::bind("0.0.0.0:6000")?;
+
+    println!("Listening on 0.0.0.0:6000");
+    println!("Waiting for an X11 setup request...");
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                println!("Client connected from {}", stream.peer_addr()?);
+
+                let mut header = [0u8; 12];
+                println!("Reading 12-byte header...");
+                stream.read_exact(&mut header)?;
+                println!("Header read complete");
+
+                println!("{:02X?}", header);
+
+                let byte_order = header[0] as char;
+                let major = u16::from_le_bytes([header[2], header[3]]);
+                let minor = u16::from_le_bytes([header[4], header[5]]);
+                let auth_name_len =
+                    u16::from_le_bytes([header[6], header[7]]) as usize;
+                let auth_data_len =
+                    u16::from_le_bytes([header[8], header[9]]) as usize;
+
+                println!("byte order: {byte_order}");
+                println!("protocol version: {major}.{minor}");
+                println!("auth name length: {auth_name_len}");
+                println!("auth data length: {auth_data_len}");
+
+                let padded_name_len = pad4(auth_name_len);
+                let padded_data_len = pad4(auth_data_len);
+                let auth_total = padded_name_len + padded_data_len;
+
+                println!("padded auth name length: {padded_name_len}");
+                println!("padded auth data length: {padded_data_len}");
+                println!("about to read padded auth bytes: {auth_total}");
+
+                let mut auth = vec![0u8; auth_total];
+                stream.read_exact(&mut auth)?;
+
+                println!("padded auth bytes read: {auth_total}");
+                println!("received X11 setup request");
+
+                let reason =
+                    b"Rust X11 lab received your connection, but setup is not implemented yet.\n";
+                let reason_len = reason.len();
+                let padded_reason_len = pad4(reason_len);
+                let additional_length = (padded_reason_len / 4) as u16;
+
+                let mut response = Vec::new();
+                response.push(0); // Failed
+                response.push(reason_len as u8);
+                response.extend_from_slice(&11u16.to_le_bytes());
+                response.extend_from_slice(&0u16.to_le_bytes());
+                response.extend_from_slice(&additional_length.to_le_bytes());
+                response.extend_from_slice(reason);
+                response.resize(8 + padded_reason_len, 0);
+
+                stream.write_all(&response)?;
+                println!("sent intentional X11 setup failure");
+            }
+            Err(err) => {
+                eprintln!("Connection error: {err}");
+            }
+        }
+    }
+
+    Ok(())
+}
+```
+
+Run the server:
+
+```powershell
+cargo run
+```
+
+Then from WSL:
+
+```bash
+export DISPLAY=$WINDOWS_HOST:0.0
+xclock
+```
+
+Expected Rust output should look similar to:
+
+```text
+Listening on 0.0.0.0:6000
+Waiting for an X11 setup request...
+Client connected from 172.18.227.201:60842
+Reading 12-byte header...
+Header read complete
+[6C, 00, 0B, 00, 00, 00, 12, 00, 10, 00, 00, 00]
+byte order: l
+protocol version: 11.0
+auth name length: 18
+auth data length: 16
+padded auth name length: 20
+padded auth data length: 16
+about to read padded auth bytes: 36
+padded auth bytes read: 36
+received X11 setup request
+sent intentional X11 setup failure
+```
+
+Expected WSL output:
+
+```text
+Rust X11 lab received your connection, but setup is not implemented yet.
+Error: Can't open display: 172.18.224.1:0.0
+```
+
+That error is expected. `xclock` reached our server, but our server deliberately
+rejected the setup request instead of creating a real display connection.
+
+This intentional failure is a success for the lesson. It proves that:
 
 - `xclock` found our Rust server.
 - The Rust server accepted the TCP connection.
 - The Rust server read the X11 setup request.
 - The Rust server sent bytes back to the X11 client.
+
+When this checkpoint works, return to the PowerShell terminal running the Rust
+application and press `Ctrl+C` to stop it before continuing to Step 8.
 
 ## Step 8: Run the Full Check
 
@@ -727,7 +891,7 @@ cargo run
 In Ubuntu, set `DISPLAY` and run `xclock`:
 
 ```bash
-WINDOWS_HOST=$(awk '/nameserver/ { print $2; exit }' /etc/resolv.conf)
+WINDOWS_HOST=$(ip route | awk '/default/ {print $3; exit}')
 export DISPLAY=$WINDOWS_HOST:0.0
 xclock
 ```
@@ -735,12 +899,20 @@ xclock
 Expected Rust output:
 
 ```text
-Minimal Rust X11 server listening on display :0 / TCP 6000
-X11 client connected
+Listening on 0.0.0.0:6000
+Waiting for an X11 setup request...
+Client connected from 172.18.227.201:60842
+Reading 12-byte header...
+Header read complete
+[6C, 00, 0B, 00, 00, 00, 12, 00, 10, 00, 00, 00]
 byte order: l
 protocol version: 11.0
-auth name length: 0
-auth data length: 0
+auth name length: 18
+auth data length: 16
+padded auth name length: 20
+padded auth data length: 16
+about to read padded auth bytes: 36
+padded auth bytes read: 36
 received X11 setup request
 sent intentional X11 setup failure
 ```
@@ -748,7 +920,7 @@ sent intentional X11 setup failure
 The authentication lengths may differ depending on your environment. That is
 fine. The important checkpoints are:
 
-- The server prints `X11 client connected`.
+- The server prints `Client connected from ...`.
 - The server prints `protocol version: 11.0`.
 - The server prints `received X11 setup request`.
 - The server prints `sent intentional X11 setup failure`.
