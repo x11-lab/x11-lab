@@ -264,8 +264,8 @@ This only proves that the TCP port is reachable. We are not speaking X11 yet,
 and the Rust program will not print `X11 client connected` until we add the
 accept loop in the next step.
 
-After the connection test works, return to the PowerShell terminal running the
-Rust application and press `Ctrl+C` to stop it. Then continue to Step 2.
+When this checkpoint works, return to the PowerShell terminal running the Rust
+application and press `Ctrl+C` to stop it before continuing to Step 2.
 
 ## Step 2: Accept a Client
 
@@ -324,6 +324,9 @@ Client connected from 172.18.227.201:60842
 This does not understand X11 yet. It only proves that a client can reach the
 server over TCP.
 
+When this checkpoint works, return to the PowerShell terminal running the Rust
+application and press `Ctrl+C` to stop it before continuing to Step 3.
+
 ## Step 3: Point xclock at the Rust Server
 
 In the WSL terminal make sure the previously assigned environment variable is set:
@@ -351,6 +354,9 @@ Client connected from xxx.xxx.xxx.xxx:xxxxx
 ```
   
 If nothing appears in the Rust server output, the client did not reach the Rust process. Check the `DISPLAY` value, confirm the server is running, and allow the program through Windows Firewall if prompted.  
+
+When this checkpoint works, return to the PowerShell terminal running the Rust
+application and press `Ctrl+C` to stop it before continuing to Step 4.
 
 ## Step 4: Read the X11 Setup Header
 
@@ -433,6 +439,9 @@ Byte order marker: l
 Client is little-endian
 ```
 `xclock` will probably fail or hang after that. That is okay. The Rust server has only read the X11 setup request; it has not sent a valid X11 setup reply yet.  
+
+When this checkpoint works, return to the PowerShell terminal running the Rust
+application and press `Ctrl+C` to stop it before continuing to Step 5.
 
 ## Step 5: Parse the X11 Setup Header Fields
   
@@ -551,6 +560,9 @@ auth data length: 16
 ```
 At this point we have successfully decoded the fixed-length X11 setup header. The next step is to read the variable-length authorization information that immediately follows it.  
 
+When this checkpoint works, return to the PowerShell terminal running the Rust
+application and press `Ctrl+C` to stop it before continuing to Step 6.
+
 ## Step 6: Read the Authentication Data
   
 In Step 5, we parsed the fixed 12-byte X11 setup header. Two of those fields told us how much authentication data follows the header:  
@@ -658,14 +670,23 @@ Expected output:
 Listening on 0.0.0.0:6000
 Waiting for an X11 client setup header...
 Client connected from 172.18.227.201:60842
-Received 12-byte X11 setup header:
+Reading 12-byte header...
+Header read complete
 [6C, 00, 0B, 00, 00, 00, 12, 00, 10, 00, 00, 00]
 byte order: l
 protocol version: 11.0
 auth name length: 18
 auth data length: 16
+padded auth name length: 0
+padded auth data length: 0
+about to read padded auth bytes: 0
+padded auth bytes read: 0
+received X11 setup request
 ```
 At this point we have successfully decoded the fixed-length X11 setup header. The next step is to read the variable-length authorization information that immediately follows it.  
+
+When this checkpoint works, return to the PowerShell terminal running the Rust
+application and press `Ctrl+C` to stop it before continuing to Step 7.
 
 ## Step 7: Send an Intentional Failure
 
