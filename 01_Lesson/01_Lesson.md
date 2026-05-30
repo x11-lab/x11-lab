@@ -902,28 +902,102 @@ Rust sends an intentional setup failure
 xclock prints the failure reason and exits
 ```
   
-Before running the check, make sure `main.rs` still contains the Step 7 version of the server. The important final block is the response-writing code:  
+Before running the check, make sure `main.rs` contains the complete Step 7 server. The full file should look like this:
+
+This final version combines everything added throughout Lesson 01:
+
+- `TcpListener` binds to `0.0.0.0:6000`, the TCP port for X11 display `:0`.
+- The server accepts each incoming client and prints the peer address.
+- The server reads the fixed 12-byte X11 setup header.
+- The server parses byte order, protocol version, and authentication lengths.
+- `pad4` calculates how many padded authentication bytes must be consumed.
+- The server reads the padded authentication section so the stream stays aligned.
+- The server writes an intentional X11 setup failure response back to `xclock`.
+  
+The key change in the final version is that the server is no longer just observing the client. It now completes the first round trip: client setup request in, server setup failure response out.  
   
 ```rust
-let reason = b"Rust X11 lab received your connection, but setup is not implemented yet.\n";
-let reason_len = reason.len();
-let padded_reason_len = pad4(reason_len);
-let additional_length = (padded_reason_len / 4) as u16;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 
-let mut response = Vec::new();
-response.push(0); // Failed
-response.push(reason_len as u8);
-response.extend_from_slice(&11u16.to_le_bytes());
-response.extend_from_slice(&0u16.to_le_bytes());
-response.extend_from_slice(&additional_length.to_le_bytes());
-response.extend_from_slice(reason);
-response.resize(8 + padded_reason_len, 0);
+fn pad4(value: usize) -> usize {
+    (value + 3) & !3
+}
 
-stream.write_all(&response)?;
-println!("sent intentional X11 setup failure");
+fn main() -> std::io::Result<()> {
+    let listener = TcpListener::bind("0.0.0.0:6000")?;
+
+    println!("Listening on 0.0.0.0:6000");
+    println!("Waiting for an X11 setup request...");
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                println!("Client connected from {}", stream.peer_addr()?);
+
+                let mut header = [0u8; 12];
+                println!("Reading 12-byte header...");
+                stream.read_exact(&mut header)?;
+                println!("Header read complete");
+
+                println!("{:02X?}", header);
+
+                let byte_order = header[0] as char;
+                let major = u16::from_le_bytes([header[2], header[3]]);
+                let minor = u16::from_le_bytes([header[4], header[5]]);
+                let auth_name_len =
+                    u16::from_le_bytes([header[6], header[7]]) as usize;
+                let auth_data_len =
+                    u16::from_le_bytes([header[8], header[9]]) as usize;
+
+                println!("byte order: {byte_order}");
+                println!("protocol version: {major}.{minor}");
+                println!("auth name length: {auth_name_len}");
+                println!("auth data length: {auth_data_len}");
+
+                let padded_name_len = pad4(auth_name_len);
+                let padded_data_len = pad4(auth_data_len);
+                let auth_total = padded_name_len + padded_data_len;
+
+                println!("padded auth name length: {padded_name_len}");
+                println!("padded auth data length: {padded_data_len}");
+                println!("about to read padded auth bytes: {auth_total}");
+
+                let mut auth = vec![0u8; auth_total];
+                stream.read_exact(&mut auth)?;
+
+                println!("padded auth bytes read: {auth_total}");
+                println!("received X11 setup request");
+
+                let reason =
+                    b"Rust X11 lab received your connection, but setup is not implemented yet.\n";
+                let reason_len = reason.len();
+                let padded_reason_len = pad4(reason_len);
+                let additional_length = (padded_reason_len / 4) as u16;
+
+                let mut response = Vec::new();
+                response.push(0); // Failed
+                response.push(reason_len as u8);
+                response.extend_from_slice(&11u16.to_le_bytes());
+                response.extend_from_slice(&0u16.to_le_bytes());
+                response.extend_from_slice(&additional_length.to_le_bytes());
+                response.extend_from_slice(reason);
+                response.resize(8 + padded_reason_len, 0);
+
+                stream.write_all(&response)?;
+                println!("sent intentional X11 setup failure");
+            }
+            Err(err) => {
+                eprintln!("Connection error: {err}");
+            }
+        }
+    }
+
+    Ok(())
+}
 ```
   
-That code is what turns the server from a passive reader into an X11 peer that can answer the setup request. The answer is still a failure, but it is an intentional protocol response rather than a dropped connection.  
+This file is the completed Lesson 01 server. It listens for an X11 client, reads the setup request, consumes the padded authorization data, and sends an intentional X11 setup failure response instead of dropping the connection.  
   
 Start the Rust server from PowerShell:  
   
@@ -981,26 +1055,18 @@ That error is expected in Lesson 01. We have not implemented a successful X11 se
 After the full check works, return to the PowerShell terminal running the Rust application and press `Ctrl+C` to stop it.  
   
 ## Troubleshooting
-
-If `cargo run` fails with `address already in use`, another X11 server or process
-is already using TCP port `6000`.
-
-If `xclock` opens a clock window, it is connecting to another server. Recheck the
-`DISPLAY` value in the same shell where you run `xclock`.
-
-If `xclock` says it cannot open the display and the Rust server prints nothing,
-the TCP connection did not reach the Rust process. Check the Windows host IP,
-Windows Firewall, and whether the Rust server is still running.
-
-If the Rust server prints a connection but then exits with an error, read the
-last printed field. The next lesson will make the setup parser more robust.
-
+  
+If `cargo run` fails with `address already in use`, another X11 server or process is already using TCP port `6000`.
+  
+If `xclock` opens a clock window, it is connecting to another server. Recheck the `DISPLAY` value in the same shell where you run `xclock`.  
+  
+If `xclock` says it cannot open the display and the Rust server prints nothing, the TCP connection did not reach the Rust process. Check the Windows host IP, Windows Firewall, and whether the Rust server is still running.  
+  
+If the Rust server prints a connection but then exits with an error, read the last printed field. The next lesson will make the setup parser more robust.  
+  
 ## Lesson 01 Result
-
-We now have the first piece of an X11 server: a Rust process that accepts a real
-X11 client connection and reads the setup request.
-
-In the next lesson, we will replace the intentional failure with a successful X11
-setup response. That is the point where clients can begin sending normal X11
-requests such as creating windows, asking for atoms, and querying server
-properties.
+  
+We now have the first piece of an X11 server: a Rust process that accepts a real X11 client connection and reads the setup request.  
+  
+In the next lesson, we will replace the intentional failure with a successful X11 setup response. That is the point where clients can begin sending normal X11 requests such as creating windows, asking for atoms, and querying server properties.  
+  
