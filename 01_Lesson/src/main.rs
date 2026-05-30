@@ -49,7 +49,7 @@
 // fn pad4(value: usize) -> usize {
 //     (value + 3) & !3
 // }
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::TcpListener;
 
 fn pad4(value: usize) -> usize {
@@ -100,6 +100,24 @@ fn main() -> std::io::Result<()> {
 
                 println!("padded auth bytes read: {auth_total}");
                 println!("received X11 setup request");
+
+                let reason =
+                    b"Rust X11 lab received your connection, but setup is not implemented yet.\n";
+                let reason_len = reason.len();
+                let padded_reason_len = pad4(reason_len);
+                let additional_length = (padded_reason_len / 4) as u16;
+
+                let mut response = Vec::new();
+                response.push(0); // Failed
+                response.push(reason_len as u8);
+                response.extend_from_slice(&11u16.to_le_bytes());
+                response.extend_from_slice(&0u16.to_le_bytes());
+                response.extend_from_slice(&additional_length.to_le_bytes());
+                response.extend_from_slice(reason);
+                response.resize(8 + padded_reason_len, 0);
+
+                stream.write_all(&response)?;
+                println!("sent intentional X11 setup failure");
             }
             Err(err) => {
                 eprintln!("Connection error: {err}");
