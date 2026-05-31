@@ -1,30 +1,24 @@
 # Lesson 03: Answer the First X11 Requests
-
-In Lesson 02, our Rust server completed the X11 setup handshake and then logged
-the normal requests sent by `xclock`. That was an important line to cross: after
-setup succeeds, the client no longer sends setup data. It sends normal X11
-requests with opcodes, sequence numbers, request lengths, and optional payloads.
-
-In this lesson, we will stop treating that request stream as something to only
-print. We will answer a small but useful set of core X11 requests:
-
+  
+In Lesson 02, our Rust server completed the X11 setup handshake and then logged the normal requests sent by `xclock`. That was an important line to cross: after setup succeeds, the client no longer sends setup data. It sends normal X11 requests with opcodes, sequence numbers, request lengths, and optional payloads.  
+  
+In this lesson, we will stop treating that request stream as something to only print. We will answer a small but useful set of core X11 requests:  
+  
 - `QueryExtension`
 - `ListExtensions`
 - `InternAtom`
 - `GetAtomName`
 - `GetInputFocus`
 - `NoOperation`
-
-We will also send structured X11 errors for unsupported or malformed requests.
-
-At the end of this lesson, `xclock` still will not show a clock window. That is
-expected. The new milestone is that the Rust server can participate in the
-normal request/reply phase instead of stopping after setup.
-
+  
+We will also send structured X11 errors for unsupported or malformed requests.  
+  
+At the end of this lesson, `xclock` still will not show a clock window. That is expected. The new milestone is that the Rust server can participate in the normal request/reply phase instead of stopping after setup.  
+  
 ## What We Are Building
-
-The Rust application for this lesson will:
-
+  
+The Rust application for this lesson will:  
+  
 1. Accept an X11 client connection on TCP port `6000`.
 2. Read the client's setup request.
 3. Send the same successful setup response from Lesson 02.
@@ -34,33 +28,27 @@ The Rust application for this lesson will:
 7. Reply to atom requests.
 8. Reply to `GetInputFocus`.
 9. Send valid 32-byte X11 errors for unsupported requests.
-
-This is the first lesson where the server has real post-setup behavior. It still
-does not create windows, draw graphics, load fonts, or send expose events. Those
-features require more state. Lesson 03 focuses on request decoding, replies,
-errors, sequence numbers, and atoms.
-
+  
+This is the first lesson where the server has real post-setup behavior. It still does not create windows, draw graphics, load fonts, or send expose events. Those features require more state. Lesson 03 focuses on request decoding, replies, errors, sequence numbers, and atoms.  
+  
 ## Why These Requests Come First
-
-After setup succeeds, many X11 clients immediately ask what the server supports.
-They may ask whether extensions such as `BIG-REQUESTS`, `RENDER`, or `MIT-SHM`
-exist. They may intern atoms such as `WM_PROTOCOLS`, `WM_DELETE_WINDOW`, or
-`WM_NAME`. They may also ask for the current input focus.
-
-These requests are a good next step because they are small:
-
+  
+After setup succeeds, many X11 clients immediately ask what the server supports. They may ask whether extensions such as `BIG-REQUESTS`, `RENDER`, or `MIT-SHM` exist. They may intern atoms such as `WM_PROTOCOLS`, `WM_DELETE_WINDOW`, or `WM_NAME`. They may also ask for the current input focus.  
+  
+These requests are a good next step because they are small:  
+  
 - `QueryExtension` returns whether a named extension exists.
 - `ListExtensions` returns the server's extension names.
 - `InternAtom` maps a name to a numeric atom ID.
 - `GetAtomName` maps an atom ID back to a name.
 - `GetInputFocus` returns a small fixed-size reply.
-
-They teach the request/reply mechanics without needing window drawing yet.
-
-## Step 1: Start from Lesson 02
-
-Create a new lesson project:
-
+  
+They teach the request/reply mechanics without needing window drawing yet.  
+  
+## Step 1: Start from Lesson 02  
+  
+Create a new lesson project:  
+  
 ```text
 03_Lesson/
     Cargo.toml
@@ -68,39 +56,35 @@ Create a new lesson project:
     src/
         main.rs
 ```
-
-Lesson 03 starts with the completed Lesson 02 server. That server already knows
-how to send a successful setup response and log normal request headers.
-
-Run the Lesson 02-style baseline once:
-
+  
+Lesson 03 starts with the completed Lesson 02 server. That server already knows how to send a successful setup response and log normal request headers.  
+  
+Run the Lesson 02-style baseline once:  
+  
 ```powershell
 cd 03_Lesson
 cargo run
 ```
-
-From WSL:
-
+  
+From WSL:  
+  
 ```bash
 WINDOWS_HOST=$(ip route | awk '/default/ {print $3; exit}')
 export DISPLAY=$WINDOWS_HOST:0.0
 xclock
 ```
-
-The server should print a successful setup response and then begin logging
-request headers. When that works, stop the server with `Ctrl+C`.
-
-When this checkpoint works, continue to Step 2.
-
-Steps 2 through 6 show the important changes as focused excerpts. They are
-cumulative, but they are not complete replacements for `main.rs` by themselves.
-Step 7 contains the complete buildable file.
-
-## Step 2: Decode Requests Into a Struct
-
-Lesson 02 logged request headers directly inside a loop. Lesson 03 gives each
-request a struct so handlers can share a consistent shape:
-
+  
+The server should print a successful setup response and then begin logging request headers. When that works, stop the server with `Ctrl+C`.  
+  
+When this checkpoint works, continue to Step 2.  
+  
+Steps 2 through 6 show the important changes as focused excerpts. They are cumulative, but they are not complete replacements for `main.rs` by themselves.  
+Step 7 contains the complete buildable file.  
+  
+## Step 2: Decode Requests Into a Struct  
+  
+Lesson 02 logged request headers directly inside a loop. Lesson 03 gives each request a struct so handlers can share a consistent shape:  
+  
 ```rust
 struct Request {
     sequence: u16,
@@ -110,21 +94,19 @@ struct Request {
     payload: Vec<u8>,
 }
 ```
-
-Every X11 request has a 4-byte header:
-
-| Bytes | Meaning |
-| ----- | ------- |
-| 0 | Major opcode |
-| 1 | Request-specific data byte |
-| 2-3 | Total request length in 4-byte units |
-
-The length includes the 4-byte header. A request with `length_units == 1` is
-exactly 4 bytes long and has no payload. A request with `length_units == 5` is
-20 bytes long and has a 16-byte payload.
-
-The read function is:
-
+  
+Every X11 request has a 4-byte header:  
+  
+| Bytes | Meaning                              |
+| ----- | ------------------------------------ |
+| 0     | Major opcode                         |
+| 1     | Request-specific data byte           |
+| 2-3   | Total request length in 4-byte units |
+  
+The length includes the 4-byte header. A request with `length_units == 1` is exactly 4 bytes long and has no payload. A request with `length_units == 5` is 20 bytes long and has a 16-byte payload.  
+  
+The read function is:  
+  
 ```rust
 fn read_x11_request(
     stream: &mut TcpStream,
@@ -175,17 +157,15 @@ fn read_x11_request(
     }))
 }
 ```
-
-The sequence number starts at `1` for the first normal request after setup. The
-server must echo the matching sequence number in replies and errors.
-
-Add this request type and read function to `main.rs`. When this piece is in
-place, continue to Step 3.
-
+   
+The sequence number starts at `1` for the first normal request after setup. The server must echo the matching sequence number in replies and errors.  
+  
+Add this request type and read function to `main.rs`. When this piece is in place, continue to Step 3.  
+  
 ## Step 3: Add Reply and Error Helpers
-
-X11 replies begin with an 8-byte reply header:
-
+  
+X11 replies begin with an 8-byte reply header:  
+  
 ```rust
 fn push_reply_header(
     out: &mut Vec<u8>,
@@ -200,14 +180,11 @@ fn push_reply_header(
     byte_order.push_u32(out, additional_length);
 }
 ```
-
-The first byte is always `1` for a reply. The second byte is request-specific.
-For example, `GetInputFocus` uses it for `revert-to`; most replies leave it as
-zero. The `additional_length` field counts the extra bytes after the fixed
-32-byte reply, measured in 4-byte units.
-
-Errors are also fixed-size protocol messages. They are always 32 bytes:
-
+  
+The first byte is always `1` for a reply. The second byte is request-specific. For example, `GetInputFocus` uses it for `revert-to`; most replies leave it as zero. The `additional_length` field counts the extra bytes after the fixed 32-byte reply, measured in 4-byte units.  
+  
+Errors are also fixed-size protocol messages. They are always 32 bytes:  
+  
 ```rust
 fn send_error(
     stream: &mut TcpStream,
@@ -228,29 +205,25 @@ fn send_error(
     stream.write_all(&error)
 }
 ```
-
-This lesson uses:
+  
+This lesson uses:  
 
 | Error           | Code | When we send it                        |
 | --------------- | ---- | -------------------------------------- |
 | `Request`       | `1`  | The opcode is unsupported              |
 | `Atom`          | `5`  | `GetAtomName` asks for an unknown atom |
 | `Length`        | `16` | A request payload is too short         |
-
-Sending an error is better than silently closing the connection. It lets the
-client observe a protocol-shaped failure.
-
-Add these reply and error helpers to `main.rs`. When this piece is in place,
-continue to Step 4.
-
+  
+Sending an error is better than silently closing the connection. It lets the client observe a protocol-shaped failure.  
+  
+Add these reply and error helpers to `main.rs`. When this piece is in place, continue to Step 4.  
+  
 ## Step 4: Answer Extension Discovery
-
-Many clients ask about extensions early. Lesson 03 does not implement any
-extensions yet, so it answers honestly: no extensions are present.
-
-For `QueryExtension`, parse the name from the request payload and return
-`present = false`:
-
+  
+Many clients ask about extensions early. Lesson 03 does not implement any extensions yet, so it answers honestly: no extensions are present.  
+  
+For `QueryExtension`, parse the name from the request payload and return `present = false`:  
+  
 ```rust
 fn handle_query_extension(
     stream: &mut TcpStream,
@@ -283,9 +256,9 @@ fn handle_query_extension(
     stream.write_all(&reply)
 }
 ```
-
-For `ListExtensions`, return an empty list:
-
+  
+For `ListExtensions`, return an empty list:  
+  
 ```rust
 fn handle_list_extensions(
     stream: &mut TcpStream,
@@ -301,21 +274,17 @@ fn handle_list_extensions(
     stream.write_all(&reply)
 }
 ```
-
-This is intentionally minimal. A future lesson can add real extension support,
-but a small server is allowed to support none.
-
-Add these extension handlers to `main.rs`. When this piece is in place,
-continue to Step 5.
-
+  
+This is intentionally minimal. A future lesson can add real extension support, but a small server is allowed to support none.  
+  
+Add these extension handlers to `main.rs`. When this piece is in place, continue to Step 5.  
+  
 ## Step 5: Add an Atom Table
-
-Atoms are global numeric identifiers for names. Clients use them for properties,
-window manager protocols, clipboard selections, and many other parts of X11.
-
-The core protocol defines predefined atoms numbered `1` through `67`. Dynamic
-atoms created by `InternAtom` start at `68` in this lesson:
-
+  
+Atoms are global numeric identifiers for names. Clients use them for properties, window manager protocols, clipboard selections, and many other parts of X11.  
+  
+The core protocol defines predefined atoms numbered `1` through `67`. Dynamic atoms created by `InternAtom` start at `68` in this lesson:  
+  
 ```rust
 const FIRST_DYNAMIC_ATOM: u32 = 68;
 
@@ -325,18 +294,16 @@ struct AtomTable {
     next_dynamic_atom: u32,
 }
 ```
-
-In a real X11 server, atoms are server-level state. In this single-threaded lab
-server, create one `AtomTable` in `main` and pass a mutable reference into each
-client handler:
-
+  
+In a real X11 server, atoms are server-level state. In this single-threaded lab server, create one `AtomTable` in `main` and pass a mutable reference into each client handler:  
+  
 ```rust
 let listener = TcpListener::bind(X11_PORT)?;
 let mut atoms = AtomTable::new();
 ```
-
-`InternAtom` maps a name to an atom ID:
-
+   
+`InternAtom` maps a name to an atom ID:  
+  
 ```rust
 fn handle_intern_atom(
     stream: &mut TcpStream,
@@ -371,22 +338,17 @@ fn handle_intern_atom(
     stream.write_all(&reply)
 }
 ```
-
-If `only-if-exists` is true and the atom does not exist, the server returns atom
-ID `0`, which means `None`. If `only-if-exists` is false, the server creates the
-atom and remembers it.
-
-`GetAtomName` goes the other direction. It returns the name for a known atom and
-sends an `Atom` error for an unknown atom.
-
-Add the atom table and atom handlers to `main.rs`. When this piece is in place,
-continue to Step 6.
-
+  
+If `only-if-exists` is true and the atom does not exist, the server returns atom ID `0`, which means `None`. If `only-if-exists` is false, the server creates the atom and remembers it.  
+   
+`GetAtomName` goes the other direction. It returns the name for a known atom and sends an `Atom` error for an unknown atom.  
+  
+Add the atom table and atom handlers to `main.rs`. When this piece is in place, continue to Step 6.  
+  
 ## Step 6: Add GetInputFocus and the Dispatcher
-
-`GetInputFocus` is a simple fixed-size reply. Lesson 03 returns `PointerRoot`,
-which is enough to keep the request/reply shape correct:
-
+  
+`GetInputFocus` is a simple fixed-size reply. Lesson 03 returns `PointerRoot`, which is enough to keep the request/reply shape correct:  
+  
 ```rust
 fn handle_get_input_focus(
     stream: &mut TcpStream,
@@ -403,9 +365,9 @@ fn handle_get_input_focus(
     stream.write_all(&reply)
 }
 ```
-
-The request loop now dispatches by opcode:
-
+  
+The request loop now dispatches by opcode:  
+  
 ```rust
 match request.opcode {
     OPCODE_QUERY_EXTENSION => handle_query_extension(stream, byte_order, &request)?,
@@ -420,18 +382,15 @@ match request.opcode {
     }
 }
 ```
-
-Unsupported requests are still useful. When `xclock` asks for something Lesson
-03 does not implement, the server sends a protocol error instead of hanging in
-silence.
-
-Add `GetInputFocus` and the dispatcher to `main.rs`. When this piece is in
-place, compare your file with the complete version in Step 7.
-
+  
+Unsupported requests are still useful. When `xclock` asks for something Lesson 03 does not implement, the server sends a protocol error instead of hanging in silence.  
+  
+Add `GetInputFocus` and the dispatcher to `main.rs`. When this piece is in place, compare your file with the complete version in Step 7.  
+  
 ## Step 7: Full `main.rs`
-
-The complete Lesson 03 server is:
-
+  
+The complete Lesson 03 server is:  
+  
 ```rust
 use std::collections::HashMap;
 use std::io::{self, ErrorKind, Read, Write};
@@ -1177,26 +1136,26 @@ fn pad_to_4(out: &mut Vec<u8>) {
     }
 }
 ```
-
+  
 ## Step 8: Run the Full Check
-
-Run the server:
-
+  
+Run the server:  
+  
 ```powershell
 cd 03_Lesson
 cargo run
 ```
-
-From WSL:
-
+   
+From WSL:  
+  
 ```bash
 WINDOWS_HOST=$(ip route | awk '/default/ {print $3; exit}')
 export DISPLAY=$WINDOWS_HOST:0.0
 xclock
 ```
-
-Expected Rust output should look similar to:
-
+  
+Expected Rust output should look similar to:  
+  
 ```text
 Listening on 0.0.0.0:6000
 Waiting for an X11 setup request...
@@ -1218,50 +1177,38 @@ request #1: opcode 98 (QueryExtension) data 0 length 5 (20 bytes)
 request #2: opcode 16 (InternAtom) data 0 length 6 (24 bytes)
   InternAtom "WM_PROTOCOLS" only-if-exists=false -> 68
 ```
-
-Your exact request sequence may differ. Different client libraries and
-distributions ask different early questions. The important checkpoints are:
-
+  
+Your exact request sequence may differ. Different client libraries and distributions ask different early questions. The important checkpoints are:  
+  
 - The server sends the successful setup response.
 - The server logs normal request numbers.
 - `QueryExtension` receives a reply.
 - `InternAtom` creates or finds atom IDs.
 - Unsupported requests receive a `Request` error.
-
-Expected WSL behavior:
-
-- `xclock` may keep waiting, exit, or print an error after it reaches an
-  unsupported request.
-- No clock window should appear yet.
-
-That is expected. We are now answering a few normal X11 requests, but we do not
-yet implement windows, graphics contexts, fonts, drawing, properties, or events.
-
+  
+Expected WSL behavior:  
+  
+- `xclock` may keep waiting, exit, or print an error after it reaches an unsupported request.  
+- No clock window should appear yet.  
+  
+That is expected. We are now answering a few normal X11 requests, but we do not yet implement windows, graphics contexts, fonts, drawing, properties, or events.  
+  
 ## Troubleshooting
-
-If `cargo run` fails with `address already in use`, another process is already
-listening on TCP port `6000`. Stop that process before continuing.
-
-If the server prints the setup response but never prints request handlers, check
-that you are running `03_Lesson`, not `01_Lesson` or `02_Lesson`.
-
-If `xclock` exits after an unsupported request, read the opcode printed by the
-server. That opcode is a candidate for a future lesson.
-
-If `xclock` asks for an extension and the server says it is not present, that is
-normal for Lesson 03. We are deliberately building a small core-protocol server.
-
+  
+If `cargo run` fails with `address already in use`, another process is already listening on TCP port `6000`. Stop that process before continuing.  
+  
+If the server prints the setup response but never prints request handlers, check that you are running `03_Lesson`, not `01_Lesson` or `02_Lesson`.  
+  
+If `xclock` exits after an unsupported request, read the opcode printed by the server. That opcode is a candidate for a future lesson.  
+  
+If `xclock` asks for an extension and the server says it is not present, that is normal for Lesson 03. We are deliberately building a small core-protocol server.  
+  
 ## Lesson 03 Result
-
-We now have a Rust X11 server that can answer the first normal requests after
-setup. It handles extension discovery, atom interning, atom name lookup, input
-focus, no-op requests, and structured errors.
-
-The next lesson can start tracking resource IDs for windows and graphics
-contexts. That is the point where requests such as `CreateWindow`, `CreateGC`,
-`ChangeProperty`, and `MapWindow` become meaningful.
-
-Reference: X.Org X11 protocol documentation, "Request Format", "Reply Format",
-"Error Format", "Predefined Atoms", and the request encodings for
-`InternAtom`, `GetAtomName`, `QueryExtension`, and `ListExtensions`:
-https://x.org/releases/X11R7.7/doc/xproto/x11protocol.html
+  
+We now have a Rust X11 server that can answer the first normal requests after setup. It handles extension discovery, atom interning, atom name lookup, input focus, no-op requests, and structured errors.  
+  
+The next lesson can start tracking resource IDs for windows and graphics contexts. That is the point where requests such as `CreateWindow`, `CreateGC`, `ChangeProperty`, and `MapWindow` become meaningful.  
+  
+Reference: X.Org X11 protocol documentation, "Request Format", "Reply Format", "Error Format", "Predefined Atoms", and the request encodings for `InternAtom`, `GetAtomName`, `QueryExtension`, and `ListExtensions`:  
+https://x.org/releases/X11R7.7/doc/xproto/x11protocol.html  
+  
